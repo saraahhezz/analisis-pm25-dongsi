@@ -41,7 +41,7 @@ tgl_min, tgl_max = df["tanggal"].min().date(), df["tanggal"].max().date()
 rentang = st.sidebar.date_input("Rentang tanggal", value=(tgl_min, tgl_max), min_value=tgl_min, max_value=tgl_max)
 musim_pilih = st.sidebar.multiselect("Musim", URUT_MUSIM, default=URUT_MUSIM)
 batas = st.sidebar.slider("Ambang PM2.5 (µg/m³) untuk indikator 'tinggi'", 35, 150, 75, step=5,
-                          help="Default 75 µg/m³ = batas harian Tingkat II standar China (perlu diverifikasi ke dokumen resmi).")
+                          help="Nilai awal 75 µg/m³ adalah batas konsentrasi PM2.5 24 jam Tingkat II pada GB 3095-2012 (Tabel 1).")
 
 if isinstance(rentang, tuple) and len(rentang) == 2:
     awal, akhir = rentang
@@ -58,14 +58,14 @@ if f["PM2.5"].dropna().empty:
     st.stop()
 
 # ---------------- KPI ----------------
-harian = (f.groupby("tanggal").agg(pm25=("PM2.5", "mean"), n=("PM2.5", "count"))
+harian = (f.groupby("tanggal").agg(pm25=("PM2.5", "mean"), n=("pm25_terukur", "sum"))
             .query("n >= @MIN_JAM_HARIAN"))
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Rata-rata PM2.5", f"{f['PM2.5'].mean():.1f} µg/m³")
 c2.metric("Median PM2.5", f"{f['PM2.5'].median():.1f} µg/m³")
 c3.metric(f"% jam > {batas} µg/m³", f"{(f['PM2.5'].dropna() > batas).mean() * 100:.1f}%")
 c4.metric(f"% hari > {batas} µg/m³", f"{(harian['pm25'] > batas).mean() * 100:.1f}%" if len(harian) else "n/a",
-          help=f"Dihitung dari {len(harian):,} hari dengan minimal {MIN_JAM_HARIAN} jam data valid.")
+          help=f"Dihitung dari {len(harian):,} hari valid, yaitu hari dengan minimal {MIN_JAM_HARIAN} jam data terukur (GB 3095-2012, Tabel 4).")
 
 tab1, tab2, tab3, tab4 = st.tabs(["Q1: Pola waktu", "Q2: Angin", "Analisis lanjutan", "Catatan data"])
 
@@ -98,7 +98,7 @@ with tab1:
         sns.despine(); plt.tight_layout(); st.pyplot(fig); plt.close(fig)
 
     st.markdown("**Sebaran kategori kualitas udara harian per periode Maret-Februari**")
-    hp = (f.groupby("tanggal").agg(pm25=("PM2.5", "mean"), n=("PM2.5", "count"), periode=("periode", "first"))
+    hp = (f.groupby("tanggal").agg(pm25=("PM2.5", "mean"), n=("pm25_terukur", "sum"), periode=("periode", "first"))
             .query("n >= @MIN_JAM_HARIAN"))
     if hp.empty:
         st.info("Tidak ada hari dengan data valid yang memadai pada filter ini.")
@@ -114,7 +114,8 @@ with tab1:
         ax.invert_yaxis(); ax.set_xlim(0, 100); ax.set_xlabel("% hari valid"); ax.set_ylabel("")
         ax.legend(bbox_to_anchor=(1.01, 1), loc="upper left", frameon=False, fontsize=8)
         sns.despine(); plt.tight_layout(); st.pyplot(fig); plt.close(fig)
-        st.caption("Titik batas kategori (35/75/115/150/250) dari ingatan terhadap standar AQI China dan perlu diverifikasi ke dokumen resmi.")
+        st.caption("Titik batas kategori (35/75/115/150/250 µg/m³) mengacu pada Tabel 1 dan Tabel 2 HJ 633-2012 dan ditentukan hanya dari sub-indeks PM2.5, bukan AQI gabungan seluruh polutan. "
+                   "Hari valid memiliki minimal 20 jam data terukur (GB 3095-2012, Tabel 4).")
 
 # ---------------- Tab 2 ----------------
 with tab2:
@@ -187,6 +188,7 @@ with tab4:
         """
 - **Missing value:** PM2.5 yang hilang hanya diisi (interpolasi waktu) jika celahnya ≤ 6 jam. Sisanya dibiarkan kosong.
 - **PM2.5 > PM10** terjadi pada ±6% baris, diberi penanda dan **tidak dihapus**. Uji sensitivitas di notebook tidak mengubah kesimpulan.
+- **Hari valid** untuk kategori harian adalah hari dengan minimal 20 jam PM2.5 terukur (bukan hasil interpolasi), mengikuti GB 3095-2012, Tabel 4.
 - **Outlier PM2.5 > 500** dipertahankan karena kemungkinan besar episode polusi nyata.
 - **CO dan NO2** tidak dianalisis karena celah data sangat panjang (hingga 1.517 jam).
 - **Satu stasiun, empat tahun:** hasil tidak otomatis berlaku untuk seluruh Beijing, dan hubungan angin-PM2.5 adalah asosiasi, bukan sebab-akibat.
